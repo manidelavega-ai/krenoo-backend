@@ -228,3 +228,34 @@ async def delete_alert(
     
     logger.info(f"🗑️ Alert deleted: {alert_id}")
     return None
+
+@router.get("/history/all", response_model=List[DetectedSlotResponse])
+async def get_all_history(
+    limit: int = 50,
+    current_user = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Récupère tous les créneaux détectés pour l'utilisateur
+    (toutes alertes confondues)
+    """
+    
+    # Récupérer les IDs des alertes de l'utilisateur
+    result = await db.execute(
+        select(UserAlert.id).where(UserAlert.user_id == current_user.id)
+    )
+    alert_ids = [row[0] for row in result.fetchall()]
+    
+    if not alert_ids:
+        return []
+    
+    # Récupérer tous les slots détectés
+    result = await db.execute(
+        select(DetectedSlot)
+        .where(DetectedSlot.alert_id.in_(alert_ids))
+        .order_by(DetectedSlot.detected_at.desc())
+        .limit(limit)
+    )
+    slots = result.scalars().all()
+    
+    return slots
