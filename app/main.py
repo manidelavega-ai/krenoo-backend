@@ -4,7 +4,7 @@ FastAPI application principale
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.routes import alerts, clubs, stripe
+from app.api.routes import alerts, clubs, stripe, users
 import logging
 
 # Configuration du logging
@@ -33,6 +33,7 @@ app.add_middleware(
 app.include_router(alerts.router)
 app.include_router(clubs.router)
 app.include_router(stripe.router)
+app.include_router(users.router)
 
 @app.get("/")
 async def root():
