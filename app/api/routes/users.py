@@ -1,15 +1,17 @@
 """
 Routes API pour les utilisateurs
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from app.core.database import get_db
 from app.core.auth import get_current_user
-from app.models.models import Subscription
+from app.models.models import Subscription, PushToken
 from pydantic import BaseModel
 from typing import Optional
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/users", tags=["users"])
 
 # Quotas par plan (même que dans alerts.py)
@@ -91,3 +93,55 @@ async def get_current_user_info(
         plan=plan,
         quotas=UserQuotasResponse(plan=plan, **quotas)
     )
+
+
+# === PUSH NOTIFICATIONS ===
+
+class PushTokenRequest(BaseModel):
+    token: str
+    device_type: str  # 'ios' ou 'android'
+
+class PushTokenResponse(BaseModel):
+    success: bool
+    message: str
+
+@router.post("/register-push-token", response_model=PushTokenResponse)
+async def register_push_token(
+    data: PushTokenRequest,
+    current_user = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Enregistre ou met à jour le push token de l'utilisateur"""
+    
+    try:
+        # Vérifier si le token existe déjà
+        result = await db.execute(
+            select(PushToken).where(PushToken.token == data.token)
+        )
+        existing_token = result.scalar_one_or_none()
+        
+        if existing_token:
+            # Token existe - mettre à jour le user_id si différent
+            if existing_token.user_id != current_user.id:
+                existing_token.user_id = current_user.id
+            existing_token.device_type = data.device_type
+            existing_token.is_active = True
+            logger.info(f"📱 Push token mis à jour pour user {current_user.id}")
+        else:
+            # Nouveau token
+            new_token = PushToken(
+                user_id=current_user.id,
+                token=data.token,
+                device_type=data.device_type,
+                is_active=True
+            )
+            db.add(new_token)
+            logger.info(f"📱 Nouveau push token enregistré pour user {current_user.id}")
+        
+        await db.commit()
+        
+        return PushTokenResponse(success=True, message="Token enregistré")
+        
+    except Exception as e:
+        logger.error(f"❌ Erreur enregistrement push token: {e}")
+        raise HTTPException(status_code=500, detail="Erreur enregistrement token")

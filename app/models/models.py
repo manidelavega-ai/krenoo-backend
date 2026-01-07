@@ -70,3 +70,14 @@ class DetectedSlot(Base):
     email_sent_at = Column(DateTime(timezone=True))
     
     detected_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class PushToken(Base):
+    __tablename__ = "push_tokens"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    token = Column(String(255), nullable=False, unique=True)
+    device_type = Column(String(20))  # 'ios' ou 'android'
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
