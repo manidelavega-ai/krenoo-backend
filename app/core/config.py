@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     # App
     APP_NAME: str = "PadelSpot"
     API_URL: str 
-    FRONTEND_URL: str = "https://padelspot.com"
+    FRONTEND_URL: str = "padelspot://"
     SECRET_KEY: str
     
     # Doinsport
