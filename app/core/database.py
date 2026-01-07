@@ -9,7 +9,11 @@ DATABASE_URL = settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncp
 engine = create_async_engine(
     DATABASE_URL,
     echo=settings.LOG_LEVEL == "DEBUG",
-    future=True
+    future=True,
+    connect_args={
+        "statement_cache_size": 0,  # ✅ IMPORTANT pour Supabase/pgBouncer
+        "prepared_statement_cache_size": 0,
+    }
 )
 
 AsyncSessionLocal = sessionmaker(
