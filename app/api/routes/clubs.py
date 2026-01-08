@@ -1,6 +1,6 @@
 """
-Routes API pour la gestion des clubs - VERSION CORRIGÉE
-Utilise l'endpoint /clubs/playgrounds/plannings pour récupérer le club_id
+Routes API pour la gestion des clubs - VERSION CORRIGÉE V2
+Scrape le site web Doinsport pour récupérer le club_id
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,153 +64,191 @@ def extract_slug_from_url(url: str) -> str:
     raise ValueError("URL invalide")
 
 
-def normalize_for_matching(text: str) -> str:
-    """Normalise un texte pour la comparaison (minuscules, sans accents, sans tirets)"""
-    import unicodedata
-    text = text.lower().strip()
-    text = unicodedata.normalize('NFD', text)
-    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
-    text = re.sub(r'[-_\s]+', '', text)
-    return text
+async def get_club_id_from_website(slug: str) -> Optional[dict]:
+    """
+    Scrape le site web du club pour extraire le club_id depuis le HTML/JS.
+    Le site Doinsport stocke le club_id dans les appels API du frontend.
+    """
+    timeout = httpx.Timeout(30.0, connect=10.0)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        try:
+            # Étape 1: Charger la page d'accueil du club
+            url = f"https://{slug}.doinsport.club"
+            logger.info(f"🌐 Scraping website: {url}")
+            
+            response = await client.get(url)
+            if response.status_code != 200:
+                logger.warning(f"❌ Site non accessible: {response.status_code}")
+                return None
+            
+            html = response.text
+            
+            # Étape 2: Chercher le club_id dans le HTML/JS
+            # Pattern 1: Dans les appels API (ex: /clubs/83abc3cd-22ee-4fbd-ac57-5f95b4971d9d)
+            patterns = [
+                r'/clubs/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})',
+                r'"clubId"\s*:\s*"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})"',
+                r"'clubId'\s*:\s*'([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})'",
+                r'club\.id["\s:=]+([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})',
+            ]
+            
+            club_id = None
+            for pattern in patterns:
+                match = re.search(pattern, html, re.IGNORECASE)
+                if match:
+                    club_id = match.group(1)
+                    logger.info(f"✅ Club ID trouvé dans HTML: {club_id}")
+                    break
+            
+            # Étape 3: Si pas trouvé, essayer de charger un JS qui contient la config
+            if not club_id:
+                # Chercher les scripts JS
+                js_matches = re.findall(r'src="([^"]*\.js[^"]*)"', html)
+                for js_url in js_matches[:5]:  # Limiter à 5 scripts
+                    if not js_url.startswith('http'):
+                        js_url = f"https://{slug}.doinsport.club{js_url}"
+                    try:
+                        js_resp = await client.get(js_url)
+                        if js_resp.status_code == 200:
+                            for pattern in patterns:
+                                match = re.search(pattern, js_resp.text, re.IGNORECASE)
+                                if match:
+                                    club_id = match.group(1)
+                                    logger.info(f"✅ Club ID trouvé dans JS: {club_id}")
+                                    break
+                        if club_id:
+                            break
+                    except:
+                        continue
+            
+            if not club_id:
+                logger.warning(f"❌ Club ID non trouvé dans le site web")
+                return None
+            
+            # Étape 4: Récupérer les infos du club via l'API
+            club_url = f"{settings.DOINSPORT_API_BASE}/clubs/{club_id}"
+            logger.info(f"📡 Appel API club: {club_url}")
+            
+            club_resp = await client.get(club_url)
+            if club_resp.status_code == 200:
+                club_data = club_resp.json()
+                
+                # Vérifier si le club a du padel
+                activities = club_data.get("activities", [])
+                has_padel = any(
+                    act.get("@id", "").endswith(settings.PADEL_ACTIVITY_ID) or 
+                    act.get("id") == settings.PADEL_ACTIVITY_ID
+                    for act in activities
+                )
+                
+                address = club_data.get("address", [])
+                if isinstance(address, list):
+                    address = ", ".join(address) if address else None
+                
+                return {
+                    "id": club_id,
+                    "name": club_data.get("name"),
+                    "city": club_data.get("city"),
+                    "address": address,
+                    "has_padel": has_padel
+                }
+            else:
+                logger.warning(f"❌ API club error: {club_resp.status_code}")
+                return {"id": club_id, "name": None, "city": None, "has_padel": False}
+                
+        except Exception as e:
+            logger.error(f"❌ Erreur scraping: {e}")
+            return None
 
 
-def slug_matches_club_name(slug: str, club_name: str) -> bool:
-    """Vérifie si le slug correspond au nom du club"""
-    slug_norm = normalize_for_matching(slug)
-    name_norm = normalize_for_matching(club_name)
-    
-    # Match exact après normalisation
-    if slug_norm == name_norm:
-        return True
-    
-    # Le slug est contenu dans le nom ou vice-versa
-    if slug_norm in name_norm or name_norm in slug_norm:
-        return True
-    
-    # Vérifier si tous les mots du slug sont dans le nom
-    slug_words = set(slug.lower().replace("-", " ").split())
-    name_words = set(club_name.lower().split())
-    
-    # Ignorer les mots génériques
-    ignore_words = {'padel', 'club', 'de', 'du', 'la', 'le', 'les', 'center', 'centre'}
-    slug_words = slug_words - ignore_words
-    
-    if slug_words and slug_words.issubset(name_words):
-        return True
-    
-    return False
+async def count_padel_courts(club_id: str) -> int:
+    """Compte les terrains de padel d'un club"""
+    timeout = httpx.Timeout(30.0, connect=10.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        test_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        
+        url = f"{settings.DOINSPORT_API_BASE}/clubs/playgrounds/plannings/{test_date}"
+        params = {
+            "club.id": club_id,
+            "activities.id": settings.PADEL_ACTIVITY_ID,
+            "bookingType": "unique"
+        }
+        
+        logger.info(f"📡 Comptage terrains: {url} avec club.id={club_id}")
+        
+        try:
+            response = await client.get(url, params=params)
+            if response.status_code == 200:
+                data = response.json()
+                total = data.get("hydra:totalItems", 0)
+                logger.info(f"🎾 {total} terrain(s) de padel trouvé(s)")
+                return total
+            else:
+                logger.warning(f"❌ API error: {response.status_code}")
+                return 0
+        except Exception as e:
+            logger.error(f"❌ Erreur comptage: {e}")
+            return 0
 
 
 async def fetch_club_info_from_doinsport(slug: str) -> dict:
     """
-    Récupère les infos du club depuis l'API Doinsport.
-    Stratégie: chercher dans les playgrounds de padel et matcher par nom.
+    Récupère les infos du club depuis Doinsport.
+    1. Scrape le site web pour obtenir le club_id
+    2. Appelle l'API pour les infos détaillées
+    3. Compte les terrains de padel
     """
-    # Timeout élevé car l'API Doinsport peut être lente avec beaucoup de données
-    timeout = httpx.Timeout(60.0, connect=10.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        test_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-        
-        # Récupérer TOUS les terrains de padel disponibles
-        url = f"{settings.DOINSPORT_API_BASE}/clubs/playgrounds/plannings/{test_date}"
-        params = {
-            "activities.id": settings.PADEL_ACTIVITY_ID,
-            "bookingType": "unique",
-            "itemsPerPage": 200  # Réduit pour accélérer la requête
+    logger.info(f"🔍 Recherche club pour slug: {slug}")
+    
+    # Étape 1: Récupérer le club_id depuis le site web
+    club_info = await get_club_id_from_website(slug)
+    
+    if not club_info or not club_info.get("id"):
+        return {
+            "valid": False,
+            "message": f"Club '{slug}' non trouvé. Vérifiez l'URL du club."
         }
-        
-        try:
-            logger.info(f"🔍 Recherche club pour slug: {slug}")
-            logger.info(f"📡 Appel API: {url} avec params: {params}")
-            response = await client.get(url, params=params)
-            logger.info(f"📥 Réponse reçue: status={response.status_code}")
-            
-            if response.status_code != 200:
-                logger.error(f"❌ API error: {response.status_code}")
-                return {"valid": False, "message": f"Erreur API Doinsport: {response.status_code}"}
-            
-            data = response.json()
-            members = data.get("hydra:member", [])
-            logger.info(f"📊 {len(members)} playgrounds récupérés")
-            
-            # Grouper par club et chercher celui qui correspond au slug
-            clubs_found = {}
-            
-            for pg in members:
-                club_data = pg.get("club", {})
-                if not isinstance(club_data, dict):
-                    continue
-                
-                club_id = club_data.get("id")
-                club_name = club_data.get("name", "")
-                
-                if not club_id or not club_name:
-                    continue
-                
-                # Vérifier si ce club correspond au slug
-                if slug_matches_club_name(slug, club_name):
-                    if club_id not in clubs_found:
-                        clubs_found[club_id] = {
-                            "id": club_id,
-                            "name": club_name,
-                            "city": club_data.get("city"),
-                            "padel_courts": set()
-                        }
-                    
-                    # Compter ce terrain de padel (vérifier qu'il a bien l'activité padel)
-                    activities = pg.get("activities", [])
-                    has_padel = any(
-                        act.get("id") == settings.PADEL_ACTIVITY_ID
-                        for act in activities
-                        if isinstance(act, dict)
-                    )
-                    
-                    if has_padel:
-                        pg_id = pg.get("id")
-                        if pg_id:
-                            clubs_found[club_id]["padel_courts"].add(pg_id)
-            
-            # Analyser les résultats
-            if not clubs_found:
-                logger.warning(f"❌ Aucun club trouvé pour slug: {slug}")
-                return {
-                    "valid": False,
-                    "message": f"Club '{slug}' non trouvé. Vérifiez l'URL du club."
-                }
-            
-            # Prendre le meilleur match (celui avec le plus de terrains si plusieurs)
-            best_club = max(clubs_found.values(), key=lambda c: len(c["padel_courts"]))
-            courts_count = len(best_club["padel_courts"])
-            
-            logger.info(f"✅ Club trouvé: {best_club['name']} (ID: {best_club['id']}) - {courts_count} terrains")
-            
-            if courts_count > 0:
-                return {
-                    "valid": True,
-                    "club_id": best_club["id"],
-                    "club_name": best_club["name"],
-                    "slug": slug,
-                    "has_padel": True,
-                    "courts_count": courts_count,
-                    "city": best_club.get("city")
-                }
-            else:
-                return {
-                    "valid": True,
-                    "club_id": best_club["id"],
-                    "club_name": best_club["name"],
-                    "slug": slug,
-                    "has_padel": False,
-                    "courts_count": 0,
-                    "message": "Ce club n'a pas de terrains de padel disponibles"
-                }
-                
-        except httpx.TimeoutException as e:
-            logger.error(f"⏱️ Timeout après 60s: {e}")
-            return {"valid": False, "message": "Timeout - Doinsport ne répond pas"}
-        except Exception as e:
-            logger.error(f"❌ Erreur: {e}")
-            return {"valid": False, "message": f"Erreur: {str(e)}"}
+    
+    club_id = club_info["id"]
+    club_name = club_info.get("name") or slug.replace("-", " ").title()
+    
+    # Étape 2: Compter les terrains de padel
+    courts_count = await count_padel_courts(club_id)
+    
+    if courts_count > 0:
+        return {
+            "valid": True,
+            "club_id": club_id,
+            "club_name": club_name,
+            "slug": slug,
+            "has_padel": True,
+            "courts_count": courts_count,
+            "city": club_info.get("city"),
+            "address": club_info.get("address")
+        }
+    elif club_info.get("has_padel"):
+        # Le club a l'activité padel mais pas de terrains disponibles demain
+        return {
+            "valid": True,
+            "club_id": club_id,
+            "club_name": club_name,
+            "slug": slug,
+            "has_padel": True,
+            "courts_count": 0,
+            "city": club_info.get("city"),
+            "address": club_info.get("address"),
+            "message": "Aucun terrain disponible demain (vérifiez sur d'autres dates)"
+        }
+    else:
+        return {
+            "valid": True,
+            "club_id": club_id,
+            "club_name": club_name,
+            "slug": slug,
+            "has_padel": False,
+            "courts_count": 0,
+            "message": "Ce club n'a pas de terrains de padel"
+        }
 
 
 # === ROUTES ===
@@ -302,7 +340,7 @@ async def add_club(
         name=club_info["club_name"],
         slug=slug,
         city=club_info.get("city"),
-        address=None,  # L'API playgrounds ne retourne pas l'adresse
+        address=club_info.get("address"),
         enabled=True
     )
     
