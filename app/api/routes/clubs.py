@@ -106,7 +106,9 @@ async def fetch_club_info_from_doinsport(slug: str) -> dict:
     Récupère les infos du club depuis l'API Doinsport.
     Stratégie: chercher dans les playgrounds de padel et matcher par nom.
     """
-    async with httpx.AsyncClient(timeout=20) as client:
+    # Timeout élevé car l'API Doinsport peut être lente avec beaucoup de données
+    timeout = httpx.Timeout(60.0, connect=10.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
         test_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         
         # Récupérer TOUS les terrains de padel disponibles
@@ -114,12 +116,14 @@ async def fetch_club_info_from_doinsport(slug: str) -> dict:
         params = {
             "activities.id": settings.PADEL_ACTIVITY_ID,
             "bookingType": "unique",
-            "itemsPerPage": 500  # Augmenté pour avoir tous les clubs
+            "itemsPerPage": 200  # Réduit pour accélérer la requête
         }
         
         try:
             logger.info(f"🔍 Recherche club pour slug: {slug}")
+            logger.info(f"📡 Appel API: {url} avec params: {params}")
             response = await client.get(url, params=params)
+            logger.info(f"📥 Réponse reçue: status={response.status_code}")
             
             if response.status_code != 200:
                 logger.error(f"❌ API error: {response.status_code}")
@@ -201,7 +205,8 @@ async def fetch_club_info_from_doinsport(slug: str) -> dict:
                     "message": "Ce club n'a pas de terrains de padel disponibles"
                 }
                 
-        except httpx.TimeoutException:
+        except httpx.TimeoutException as e:
+            logger.error(f"⏱️ Timeout après 60s: {e}")
             return {"valid": False, "message": "Timeout - Doinsport ne répond pas"}
         except Exception as e:
             logger.error(f"❌ Erreur: {e}")
