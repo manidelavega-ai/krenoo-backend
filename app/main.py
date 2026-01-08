@@ -4,7 +4,7 @@ FastAPI application principale
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.routes import alerts, clubs, stripe, users, clubs
+from app.api.routes import alerts, clubs, stripe, users
 import logging
 
 # Configuration du logging
