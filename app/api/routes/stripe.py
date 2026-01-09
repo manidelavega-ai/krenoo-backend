@@ -2,7 +2,7 @@
 Routes Stripe (checkout, webhooks, customer portal)
 """
 from fastapi import APIRouter, Request, HTTPException, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, Field
@@ -261,7 +261,7 @@ async def create_customer_portal(
     try:
         portal_session = stripe.billing_portal.Session.create(
             customer=subscription.stripe_customer_id,
-            return_url=f"{settings.FRONTEND_URL}/profile",
+            return_url=f"{settings.API_URL}/api/redirect/profile",
         )
         
         logger.info(f"✅ Portal session créé pour user {current_user.id}")
@@ -411,3 +411,9 @@ async def stripe_webhook(
                 logger.warning(f"⚠️ Payment failed: {subscription_id}")
     
     return JSONResponse(content={"status": "success"})
+    
+    
+@router.get("/redirect/profile")
+async def redirect_to_app():
+    """Redirige vers l'app mobile après le portal Stripe"""
+    return RedirectResponse(url="krenoo://profile")
