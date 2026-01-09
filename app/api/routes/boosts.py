@@ -5,6 +5,7 @@ Fichier: app/api/routes/boosts.py
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
+from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -81,8 +82,10 @@ async def activate_boost_on_alert(
     # 1. Vérifier que l'alerte appartient à l'utilisateur
     result = await db.execute(
         select(UserAlert)
+        .options(selectinload(UserAlert.club))  # Eager load
         .where(UserAlert.id == payload.alert_id)
         .where(UserAlert.user_id == current_user.id)
+)
     )
     alert = result.scalar_one_or_none()
     
@@ -150,7 +153,8 @@ async def deactivate_boost(
     """
     result = await db.execute(
         select(UserAlert)
-        .where(UserAlert.id == alert_id)
+        .options(selectinload(UserAlert.club))  # Eager load
+        .where(UserAlert.id == payload.alert_id)
         .where(UserAlert.user_id == current_user.id)
     )
     alert = result.scalar_one_or_none()
