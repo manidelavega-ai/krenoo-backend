@@ -4,7 +4,7 @@ Fichier: app/api/routes/boosts.py
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta
 from uuid import UUID
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/boosts", tags=["boosts"])
 # ============================================
 @router.get("", response_model=UserBoostResponse)
 async def get_user_boosts(
-    current_user = Depends(get_current_user),
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Récupère le nombre de boosts disponibles"""
@@ -38,7 +38,6 @@ async def get_user_boosts(
     user_boost = result.scalar_one_or_none()
     
     if not user_boost:
-        # Créer une entrée avec 0 boosts
         user_boost = UserBoost(user_id=current_user.id, boost_count=0)
         db.add(user_boost)
         await db.commit()
@@ -52,16 +51,16 @@ async def get_user_boosts(
 # ============================================
 @router.get("/history", response_model=list[BoostPurchaseResponse])
 async def get_boost_history(
-    current_user = Depends(get_current_user),
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     limit: int = 20
 ):
     """Récupère l'historique des achats de boosts"""
     result = await db.execute(
-        select(UserAlert)
-        .options(selectinload(UserAlert.club))
-        .where(UserAlert.id == payload.alert_id)
-        .where(UserAlert.user_id == current_user.id)
+        select(BoostPurchase)
+        .where(BoostPurchase.user_id == current_user.id)
+        .order_by(BoostPurchase.created_at.desc())
+        .limit(limit)
     )
     return result.scalars().all()
 
@@ -72,7 +71,7 @@ async def get_boost_history(
 @router.post("/activate", response_model=AlertResponse)
 async def activate_boost_on_alert(
     payload: AlertActivateBoost,
-    current_user = Depends(get_current_user),
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -82,10 +81,9 @@ async def activate_boost_on_alert(
     # 1. Vérifier que l'alerte appartient à l'utilisateur
     result = await db.execute(
         select(UserAlert)
-        .options(selectinload(UserAlert.club))  # Eager load
+        .options(selectinload(UserAlert.club))
         .where(UserAlert.id == payload.alert_id)
         .where(UserAlert.user_id == current_user.id)
-)
     )
     alert = result.scalar_one_or_none()
     
@@ -113,13 +111,12 @@ async def activate_boost_on_alert(
     boost_duration = timedelta(hours=BOOST_CONFIG["duration_hours"])
     alert.boost_active = True
     alert.boost_expires_at = datetime.utcnow() + boost_duration
-    alert.is_active = True  # Réactiver si elle était en pause
+    alert.is_active = True
     alert.updated_at = datetime.utcnow()
     
     await db.commit()
     await db.refresh(alert)
     
-    # Ajouter club_name pour la réponse
     return AlertResponse(
         id=alert.id,
         user_id=alert.user_id,
@@ -139,12 +136,12 @@ async def activate_boost_on_alert(
 
 
 # ============================================
-# POST /boosts/deactivate - Désactiver un boost (optionnel)
+# POST /boosts/deactivate - Désactiver un boost
 # ============================================
 @router.post("/deactivate/{alert_id}")
 async def deactivate_boost(
     alert_id: UUID,
-    current_user = Depends(get_current_user),
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -153,8 +150,7 @@ async def deactivate_boost(
     """
     result = await db.execute(
         select(UserAlert)
-        .options(selectinload(UserAlert.club))  # Eager load
-        .where(UserAlert.id == payload.alert_id)
+        .where(UserAlert.id == alert_id)
         .where(UserAlert.user_id == current_user.id)
     )
     alert = result.scalar_one_or_none()
@@ -175,17 +171,10 @@ async def deactivate_boost(
 
 
 # ============================================
-# Helpers (utilisés par d'autres modules)
+# Helpers
 # ============================================
-async def add_boosts_to_user(
-    db: AsyncSession, 
-    user_id: UUID, 
-    count: int
-) -> int:
-    """
-    Ajoute des boosts à un utilisateur (upsert).
-    Retourne le nouveau total.
-    """
+async def add_boosts_to_user(db: AsyncSession, user_id: UUID, count: int) -> int:
+    """Ajoute des boosts à un utilisateur (upsert). Retourne le nouveau total."""
     result = await db.execute(
         select(UserBoost).where(UserBoost.user_id == user_id)
     )
