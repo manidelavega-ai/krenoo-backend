@@ -58,10 +58,10 @@ async def get_boost_history(
 ):
     """Récupère l'historique des achats de boosts"""
     result = await db.execute(
-        select(BoostPurchase)
-        .where(BoostPurchase.user_id == current_user.id)
-        .order_by(BoostPurchase.created_at.desc())
-        .limit(limit)
+        select(UserAlert)
+        .options(selectinload(UserAlert.club))
+        .where(UserAlert.id == payload.alert_id)
+        .where(UserAlert.user_id == current_user.id)
     )
     return result.scalars().all()
 
