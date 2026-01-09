@@ -24,8 +24,8 @@ class Settings(BaseSettings):
     STRIPE_SECRET_KEY: str
     STRIPE_WEBHOOK_SECRET: str
     STRIPE_PRICE_ID_PREMIUM: str  # 3.99€/mois
-    STRIPE_PRICE_ID_BOOST_SINGLE: str  # 1.49€
-    STRIPE_PRICE_ID_BOOST_PACK: str  # 5.99€ (5 boosts)
+    STRIPE_PRICE_ID_BOOST_SINGLE: Optional[str] = None
+    STRIPE_PRICE_ID_BOOST_PACK: Optional[str] = None
     
     # === Resend (emails) ===
     RESEND_API_KEY: str
