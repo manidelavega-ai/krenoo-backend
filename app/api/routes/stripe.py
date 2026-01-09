@@ -418,9 +418,40 @@ async def redirect_to_app():
     """Redirige vers l'app mobile après le portal Stripe"""
     return RedirectResponse(url="krenoo://profile")
     
+    
 @router.get("/redirect/premium-success")
 async def redirect_premium_success(product: str = "premium"):
-    return RedirectResponse(url=f"krenoo://premium?success=true&product={product}")
+    # Page HTML simple avec lien deep link
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Paiement réussi - Krenoo</title>
+        <style>
+            body {{ font-family: -apple-system, sans-serif; text-align: center; padding: 50px 20px; background: #1a1a2e; color: white; }}
+            h1 {{ color: #4ade80; }}
+            .btn {{ display: inline-block; margin-top: 30px; padding: 15px 40px; background: #667eea; color: white; text-decoration: none; border-radius: 10px; font-size: 18px; }}
+        </style>
+    </head>
+    <body>
+        <h1>✅ Paiement réussi !</h1>
+        <p>Votre achat a bien été effectué.</p>
+        <a href="krenoo://premium?success=true&product={product}" class="btn">Retourner à l'app</a>
+        <p style="margin-top: 40px; color: #888; font-size: 14px;">
+            Si le bouton ne fonctionne pas, ouvrez l'app Krenoo manuellement.
+        </p>
+    </body>
+    </html>
+    """
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html)    
+    
+# Quand on n'utilisera plus Expo GO #
+#@router.get("/redirect/premium-success")
+#async def redirect_premium_success(product: str = "premium"):
+#    return RedirectResponse(url=f"krenoo://premium?success=true&product={product}")
 
 @router.get("/redirect/premium-cancel")
 async def redirect_premium_cancel():
