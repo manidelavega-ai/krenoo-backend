@@ -1,9 +1,9 @@
 """
-KRENOO - SQLAlchemy Models
+KRENOO - SQLAlchemy Models (Version gratuite)
 """
 from sqlalchemy import (
     Column, String, Boolean, Integer, DateTime, Date, Time,
-    ForeignKey, Numeric, ARRAY, Text
+    ForeignKey, Numeric, Text
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -27,44 +27,6 @@ class Club(Base):
     alerts = relationship("UserAlert", back_populates="club")
 
 
-class Subscription(Base):
-    __tablename__ = "subscriptions"
-    
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), nullable=False, unique=True)
-    stripe_customer_id = Column(String(255), unique=True)
-    stripe_subscription_id = Column(String(255), unique=True)
-    plan = Column(String(20), nullable=False, default="free")  # 'free' ou 'premium'
-    status = Column(String(20), default="active")  # 'active', 'canceled', 'past_due'
-    current_period_end = Column(DateTime(timezone=True))
-    cancel_at_period_end = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-
-
-class UserBoost(Base):
-    """Compteur de boosts disponibles pour un utilisateur"""
-    __tablename__ = "user_boosts"
-    
-    # user_id est la PK (pas de colonne id séparée)
-    user_id = Column(UUID(as_uuid=True), primary_key=True)
-    boost_count = Column(Integer, nullable=False, default=0)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-
-
-class BoostPurchase(Base):
-    """Historique des achats de boosts"""
-    __tablename__ = "boost_purchases"
-    
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), nullable=False)
-    stripe_payment_intent_id = Column(String(255))
-    product_type = Column(String(20), nullable=False)  # 'boost_single' ou 'boost_pack'
-    boost_count = Column(Integer, nullable=False)
-    amount_cents = Column(Integer, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-
 class UserAlert(Base):
     __tablename__ = "user_alerts"
     
@@ -80,13 +42,9 @@ class UserAlert(Base):
     
     # État
     is_active = Column(Boolean, default=True)
-    check_interval_minutes = Column(Integer, nullable=False, default=10)
+    check_interval_minutes = Column(Integer, nullable=False, default=3)
     baseline_scraped = Column(Boolean, default=False)
     last_checked_at = Column(DateTime(timezone=True))
-    
-    # Boost
-    boost_active = Column(Boolean, default=False)
-    boost_expires_at = Column(DateTime(timezone=True))
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())

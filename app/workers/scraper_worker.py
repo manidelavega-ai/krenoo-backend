@@ -1,31 +1,30 @@
 """
-Worker pour scraping automatique - Version avec Boosts
+Worker pour scraping automatique (Version gratuite)
 """
 import asyncio
-from datetime import datetime, timedelta, timezone, date as date_type
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import logging
 
-from sqlalchemy import select, and_, delete, update
+from sqlalchemy import select, and_, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from supabase import create_client, Client
 
-from app.core.config import settings, BOOST_CONFIG
+from app.core.config import settings, APP_QUOTAS
 from app.core.database import AsyncSessionLocal
 from app.models.models import UserAlert, DetectedSlot, Club, PushToken
 from app.services.doinsport_scraper import DoinsportScraper
 from app.services.email_service import send_slot_notification
 from app.services.push_service import send_slot_push_notification
 
-# Configuration logging
 logging.basicConfig(
     level=settings.LOG_LEVEL,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Client Supabase singleton
 _supabase_client: Optional[Client] = None
+
 
 def get_supabase_client() -> Client:
     global _supabase_client
@@ -48,59 +47,6 @@ async def get_user_info(user_id: str) -> tuple[str, str]:
     return None, None
 
 
-def get_check_interval_seconds(alert: UserAlert) -> int:
-    """
-    Retourne l'intervalle de check en SECONDES.
-    - Boost actif: 30 secondes
-    - Normal: check_interval_minutes * 60
-    """
-    now = datetime.now(timezone.utc)
-    
-    # Si boost actif et non expiré
-    if alert.boost_active and alert.boost_expires_at:
-        # S'assurer du timezone
-        expires_at = alert.boost_expires_at
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        
-        if expires_at > now:
-            return BOOST_CONFIG["check_interval_seconds"]  # 30 secondes
-    
-    # Sinon, intervalle normal en secondes
-    return alert.check_interval_minutes * 60
-
-
-async def expire_boosts(db: AsyncSession) -> int:
-    """
-    Désactive les boosts expirés.
-    Retourne le nombre de boosts expirés.
-    """
-    now = datetime.now(timezone.utc)
-    
-    result = await db.execute(
-        select(UserAlert).where(
-            and_(
-                UserAlert.boost_active == True,
-                UserAlert.boost_expires_at < now
-            )
-        )
-    )
-    expired_alerts = result.scalars().all()
-    
-    count = 0
-    for alert in expired_alerts:
-        alert.boost_active = False
-        alert.boost_expires_at = None
-        alert.updated_at = now
-        count += 1
-        logger.info(f"⏰ Boost expiré pour alerte {str(alert.id)[:8]}...")
-    
-    if count > 0:
-        await db.commit()
-    
-    return count
-
-
 async def send_notification(user_id: str, club_name: str, slot: dict, detected_slot: DetectedSlot, alert_id: str, db: AsyncSession):
     """Envoie notification (email + push)"""
     email, name = await get_user_info(str(user_id))
@@ -114,7 +60,6 @@ async def send_notification(user_id: str, club_name: str, slot: dict, detected_s
             club_name=club_name,
             slot=slot
         )
-        
         if email_sent:
             detected_slot.email_sent = True
             detected_slot.email_sent_at = datetime.now(timezone.utc)
@@ -143,9 +88,6 @@ async def send_notification(user_id: str, club_name: str, slot: dict, detected_s
             if success:
                 logger.info(f"📲 Push envoyé ({pt.device_type})")
                 notifications_sent += 1
-            else:
-                logger.warning(f"⚠️ Push échoué pour token {pt.token[:20]}...")
-                
     except Exception as e:
         logger.error(f"❌ Erreur envoi push: {e}")
     
@@ -153,9 +95,7 @@ async def send_notification(user_id: str, club_name: str, slot: dict, detected_s
 
 
 async def process_alert(alert_id: str) -> dict:
-    """
-    Traite une alerte: scrape et notifie si nouveaux créneaux
-    """
+    """Traite une alerte: scrape et notifie si nouveaux créneaux"""
     stats = {"new_slots": 0, "notifications_sent": 0, "errors": 0}
     
     async with AsyncSessionLocal() as db:
@@ -165,20 +105,14 @@ async def process_alert(alert_id: str) -> dict:
             )
             alert = result.scalar_one_or_none()
             
-            if not alert:
-                logger.warning(f"⚠️ Alerte {alert_id} non trouvée")
-                return stats
-            
-            if not alert.is_active:
-                logger.debug(f"⏸️ Alerte {alert_id} inactive, skip")
+            if not alert or not alert.is_active:
                 return stats
             
             # Vérifier si la date cible est passée
             today = datetime.now(timezone.utc).date()
             if alert.target_date < today:
-                logger.info(f"📅 Alerte {alert_id} expirée (date: {alert.target_date}), désactivation")
+                logger.info(f"📅 Alerte {alert_id} expirée, désactivation")
                 alert.is_active = False
-                alert.boost_active = False  # Désactiver aussi le boost
                 await db.commit()
                 return stats
             
@@ -187,15 +121,12 @@ async def process_alert(alert_id: str) -> dict:
             club = result.scalar_one_or_none()
             
             if not club:
-                logger.error(f"❌ Club {alert.club_id} non trouvé pour alerte {alert_id}")
+                logger.error(f"❌ Club {alert.club_id} non trouvé")
                 stats["errors"] += 1
                 return stats
             
             is_baseline = not alert.baseline_scraped
-            is_boosted = alert.boost_active and alert.boost_expires_at and alert.boost_expires_at > datetime.now(timezone.utc)
-            
-            boost_indicator = "🚀" if is_boosted else ""
-            logger.info(f"🔍 Alert {alert_id[:8]}... {boost_indicator}| {club.name} | {alert.target_date} | "
+            logger.info(f"🔍 Alert {alert_id[:8]}... | {club.name} | {alert.target_date} | "
                        f"{'BASELINE' if is_baseline else 'SCAN'}")
             
             # Scraper Doinsport
@@ -228,9 +159,9 @@ async def process_alert(alert_id: str) -> dict:
                 )
                 
                 if existing.scalar_one_or_none():
-                    continue  # Déjà connu
+                    continue
                 
-                # Nouveau créneau !
+                # Nouveau créneau
                 detected_slot = DetectedSlot(
                     alert_id=alert.id,
                     club_id=club.id,
@@ -245,26 +176,17 @@ async def process_alert(alert_id: str) -> dict:
                 db.add(detected_slot)
                 stats["new_slots"] += 1
                 
-                # Notifier seulement si baseline déjà établie
                 if not is_baseline:
                     logger.info(f"🆕 Nouveau: {slot['playground_name']} | {slot['date']} {slot['start_time']}")
-                    
                     if await send_notification(alert.user_id, club.name, slot, detected_slot, str(alert.id), db):
                         stats["notifications_sent"] += 1
-                else:
-                    logger.debug(f"📋 Baseline: {slot['playground_name']} | {slot['date']} {slot['start_time']}")
             
-            # Marquer baseline comme fait
             if is_baseline:
                 alert.baseline_scraped = True
-                logger.info(f"✅ Baseline établie: {len(slots)} créneaux référencés")
+                logger.info(f"✅ Baseline établie: {len(slots)} créneaux")
             
-            # Update timestamp
             alert.last_checked_at = datetime.now(timezone.utc)
             await db.commit()
-            
-            if stats["new_slots"] > 0:
-                logger.info(f"✅ Alert {alert_id[:8]}... | {stats['new_slots']} nouveaux | {stats['notifications_sent']} notifs")
             
         except Exception as e:
             logger.error(f"❌ Erreur traitement alerte {alert_id}: {e}")
@@ -280,10 +202,7 @@ async def cleanup_expired_data():
             today = datetime.now(timezone.utc).date()
             week_ago = today - timedelta(days=7)
             
-            # 1. Expirer les boosts
-            expired_boosts = await expire_boosts(db)
-            
-            # 2. Désactiver les alertes expirées (date passée)
+            # Désactiver les alertes expirées
             result = await db.execute(
                 select(UserAlert).where(
                     and_(
@@ -296,16 +215,15 @@ async def cleanup_expired_data():
             
             for alert in expired_alerts:
                 alert.is_active = False
-                alert.boost_active = False
                 logger.info(f"📅 Alerte {alert.id} désactivée (expirée)")
             
-            # 3. Supprimer les DetectedSlots de plus de 7 jours
+            # Supprimer les DetectedSlots de plus de 7 jours
             await db.execute(
                 delete(DetectedSlot).where(DetectedSlot.date < week_ago)
             )
             
             await db.commit()
-            logger.info(f"🧹 Cleanup: {len(expired_alerts)} alertes expirées, {expired_boosts} boosts expirés")
+            logger.info(f"🧹 Cleanup: {len(expired_alerts)} alertes expirées")
             
         except Exception as e:
             logger.error(f"❌ Erreur cleanup: {e}")
@@ -313,11 +231,11 @@ async def cleanup_expired_data():
 
 async def scheduler_loop():
     """Boucle principale du scheduler"""
-    logger.info("🚀 Worker Scheduler démarré")
-    logger.info(f"⚙️ Check interval: {settings.WORKER_CHECK_INTERVAL}s")
-    logger.info(f"⚡ Boost interval: {BOOST_CONFIG['check_interval_seconds']}s")
+    check_interval_seconds = APP_QUOTAS["check_interval_minutes"] * 60
     
-    # Cleanup au démarrage
+    logger.info("🚀 Worker Scheduler démarré")
+    logger.info(f"⚙️ Check interval: {APP_QUOTAS['check_interval_minutes']} minutes")
+    
     await cleanup_expired_data()
     
     loop_count = 0
@@ -328,10 +246,6 @@ async def scheduler_loop():
         
         try:
             async with AsyncSessionLocal() as db:
-                # Expirer les boosts à chaque cycle
-                await expire_boosts(db)
-                
-                # Récupérer alertes actives avec date future ou aujourd'hui
                 today = datetime.now(timezone.utc).date()
                 
                 result = await db.execute(
@@ -344,20 +258,14 @@ async def scheduler_loop():
                 )
                 alerts = result.scalars().all()
                 
-                # Séparer alertes boostées et normales pour le log
-                boosted_count = sum(1 for a in alerts if a.boost_active and a.boost_expires_at and a.boost_expires_at > datetime.now(timezone.utc))
-                
-                logger.info(f"📋 Cycle #{loop_count} | {len(alerts)} alerte(s) ({boosted_count} boostée(s))")
+                logger.info(f"📋 Cycle #{loop_count} | {len(alerts)} alerte(s) active(s)")
                 
                 alerts_processed = 0
                 total_new_slots = 0
                 total_notifications = 0
                 
                 for alert in alerts:
-                    # Calculer l'intervalle en secondes
-                    check_interval_seconds = get_check_interval_seconds(alert)
-                    
-                    # Vérifier si besoin de check selon l'intervalle
+                    # Vérifier intervalle
                     if alert.last_checked_at:
                         last_check = alert.last_checked_at
                         if last_check.tzinfo is None:
@@ -366,47 +274,24 @@ async def scheduler_loop():
                         seconds_since = (datetime.now(timezone.utc) - last_check).total_seconds()
                         
                         if seconds_since < check_interval_seconds:
-                            remaining = check_interval_seconds - seconds_since
-                            if remaining > 60:
-                                logger.debug(f"⏳ Alert {str(alert.id)[:8]}... check dans {remaining/60:.1f} min")
-                            else:
-                                logger.debug(f"⏳ Alert {str(alert.id)[:8]}... check dans {remaining:.0f}s")
                             continue
                     
-                    # Traiter l'alerte
                     stats = await process_alert(str(alert.id))
                     alerts_processed += 1
                     total_new_slots += stats["new_slots"]
                     total_notifications += stats["notifications_sent"]
                     
-                    # Délai plus court si alertes boostées présentes
-                    await asyncio.sleep(0.5 if boosted_count > 0 else 1)
+                    await asyncio.sleep(1)
                 
                 cycle_duration = (datetime.now(timezone.utc) - cycle_start).total_seconds()
                 logger.info(f"✅ Cycle #{loop_count} terminé en {cycle_duration:.1f}s | "
                            f"{alerts_processed} traitées | {total_new_slots} nouveaux | {total_notifications} notifs")
             
-            # Cleanup périodique (toutes les 100 boucles)
+            # Cleanup périodique
             if loop_count % 100 == 0:
                 await cleanup_expired_data()
             
-            # Attendre avant le prochain cycle
-            # Si des alertes boostées existent, réduire l'intervalle global
-            async with AsyncSessionLocal() as db:
-                result = await db.execute(
-                    select(UserAlert).where(
-                        and_(
-                            UserAlert.is_active == True,
-                            UserAlert.boost_active == True,
-                            UserAlert.boost_expires_at > datetime.now(timezone.utc)
-                        )
-                    ).limit(1)
-                )
-                has_boosted = result.scalar_one_or_none() is not None
-            
-            # Intervalle réduit si des boosts sont actifs
-            sleep_time = 10 if has_boosted else settings.WORKER_CHECK_INTERVAL
-            await asyncio.sleep(sleep_time)
+            await asyncio.sleep(settings.WORKER_CHECK_INTERVAL)
             
         except Exception as e:
             logger.error(f"❌ Erreur scheduler: {e}")
