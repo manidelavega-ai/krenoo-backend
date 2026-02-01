@@ -2,7 +2,7 @@
 Routes API pour la gestion des clubs - VERSION CORRIGÉE V2
 Scrape le site web Doinsport pour récupérer le club_id
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, validator
