@@ -18,14 +18,17 @@ router = APIRouter(tags=["slots"])
 DOINSPORT_BASE = settings.DOINSPORT_API_BASE
 PADEL_ACTIVITY_ID = settings.PADEL_ACTIVITY_ID
 
+class DurationOption(BaseModel):
+    duration_minutes: int
+    price_per_person: float
+    price_total: float
+
 class SlotInfo(BaseModel):
     playground_id: str
     playground_name: str
     indoor: bool
     start_time: str
-    duration_minutes: int
-    price_per_person: float
-    price_total: float
+    durations: list[DurationOption]  # Liste des durées disponibles
 
 class ClubResult(BaseModel):
     club_id: str
@@ -103,7 +106,7 @@ async def search_slots(
                 resp.raise_for_status()
                 data = resp.json()
             
-            slots = []
+            slots_dict = {}  # Clé: (playground_id, start_time)
             for pg in data.get("hydra:member", []):
                 is_indoor = pg.get("indoor", False)
                 if indoor_only is not None and is_indoor != indoor_only:
@@ -113,15 +116,32 @@ async def search_slots(
                     for slot in act.get("slots", []):
                         for price in slot.get("prices", []):
                             if price.get("bookable"):
-                                slots.append(SlotInfo(
-                                    playground_id=pg["id"],
-                                    playground_name=pg["name"],
-                                    indoor=is_indoor,
-                                    start_time=slot["startAt"],
+                                key = (pg["id"], slot["startAt"])
+                                duration_opt = DurationOption(
                                     duration_minutes=price["duration"] // 60,
                                     price_per_person=price["pricePerParticipant"] / 100,
                                     price_total=(price["pricePerParticipant"] * price["participantCount"]) / 100
-                                ))
+                                )
+                                
+                                if key not in slots_dict:
+                                    slots_dict[key] = SlotInfo(
+                                        playground_id=pg["id"],
+                                        playground_name=pg["name"],
+                                        indoor=is_indoor,
+                                        start_time=slot["startAt"],
+                                        durations=[duration_opt]
+                                    )
+                                else:
+                                    # Ajouter la durée si pas déjà présente
+                                    existing_durations = [d.duration_minutes for d in slots_dict[key].durations]
+                                    if duration_opt.duration_minutes not in existing_durations:
+                                        slots_dict[key].durations.append(duration_opt)
+            
+            # Trier les durées par ordre croissant
+            slots = []
+            for slot in slots_dict.values():
+                slot.durations.sort(key=lambda d: d.duration_minutes)
+                slots.append(slot)
             
             return ClubResult(
                 club_id=str(club.id),
