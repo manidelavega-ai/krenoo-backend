@@ -12,6 +12,19 @@ import uuid
 from app.core.database import Base
 
 
+class Region(Base):
+    """Régions disponibles pour la recherche."""
+    __tablename__ = "regions"
+
+    slug = Column(String(100), primary_key=True)
+    name = Column(String(100), nullable=False)
+    display_name = Column(String(100), nullable=False)
+    cities = Column(ARRAY(String), nullable=True)
+    center_lat = Column(Numeric(10, 7), nullable=True)
+    center_lng = Column(Numeric(10, 7), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class Club(Base):
     __tablename__ = "clubs"
     
@@ -20,11 +33,13 @@ class Club(Base):
     name = Column(String(255), nullable=False)
     city = Column(String(100))
     address = Column(Text)
+    region_slug = Column(String(100), ForeignKey("regions.slug"), nullable=True)
     enabled = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relations
     alerts = relationship("UserAlert", back_populates="club")
+    region = relationship("Region", backref="clubs")
 
 
 class UserAlert(Base):
@@ -92,21 +107,16 @@ class PushToken(Base):
     device_type = Column(String(20))  # 'ios' ou 'android'
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+
+
 class UserPreference(Base):
+    """Préférences utilisateur (région favorite, etc.)."""
     __tablename__ = "user_preferences"
     
-    user_id = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(UUID(as_uuid=True), primary_key=True)
     preferred_region_slug = Column(String(100), ForeignKey("regions.slug"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
     # Relations
     region = relationship("Region", backref="user_preferences")
-
-class Region(Base):
-    __tablename__ = "regions"
-
-    slug = Column(String(100), primary_key=True)
-    display_name = Column(String(100), nullable=False)
-    cities = Column(ARRAY(String), nullable=True) # ou JSON selon ta config SQL, mais ARRAY est standard pour Postgres
