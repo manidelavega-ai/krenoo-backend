@@ -5,7 +5,7 @@ from sqlalchemy import (
     Column, String, Boolean, Integer, DateTime, Date, Time,
     ForeignKey, Numeric, Text
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
@@ -100,3 +100,13 @@ class UserPreference(Base):
     preferred_region_slug = Column(String(100), ForeignKey("regions.slug"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relations
+    region = relationship("Region", backref="user_preferences")
+
+class Region(Base):
+    __tablename__ = "regions"
+
+    slug = Column(String(100), primary_key=True)
+    display_name = Column(String(100), nullable=False)
+    cities = Column(ARRAY(String), nullable=True) # ou JSON selon ta config SQL, mais ARRAY est standard pour Postgres
