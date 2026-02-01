@@ -100,6 +100,3 @@ class UserPreference(Base):
     preferred_region_slug = Column(String(100), ForeignKey("regions.slug"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    
-    # Relations
-    region = relationship("Region", backref="user_preferences")
