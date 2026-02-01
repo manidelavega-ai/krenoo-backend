@@ -358,3 +358,29 @@ async def add_club(
         address=new_club.address,
         enabled=new_club.enabled
     )
+    
+@router.get("/clubs")
+async def get_clubs(
+    region: Optional[str] = Query(None, description="Filtrer par region_slug"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Liste des clubs actifs, optionnellement filtrés par région"""
+    query = select(Club).where(Club.enabled == True)
+    
+    if region:
+        query = query.where(Club.region_slug == region)
+    
+    query = query.order_by(Club.name)
+    result = await db.execute(query)
+    clubs = result.scalars().all()
+    
+    return [
+        {
+            "id": str(c.id),
+            "name": c.name,
+            "city": c.city,
+            "doinsport_id": str(c.doinsport_id),
+            "region_slug": c.region_slug
+        }
+        for c in clubs
+    ]
