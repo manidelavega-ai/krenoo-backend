@@ -1,13 +1,12 @@
 """
-FastAPI application principale
+FastAPI application principale (Version gratuite)
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.routes import alerts, clubs, stripe, users, boosts, slots_router
+from app.api.routes import alerts, clubs, users, slots_router
 import logging
 
-# Configuration du logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -17,10 +16,9 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title=settings.APP_NAME,
     description="API pour notifications créneaux padel",
-    version="0.1.0"
+    version="1.0.0"
 )
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,30 +30,29 @@ app.add_middleware(
 # Routes
 app.include_router(alerts.router)
 app.include_router(clubs.router)
-app.include_router(stripe.router)
 app.include_router(users.router)
-app.include_router(boosts.router, prefix="/api")
-app.include_router(slots_router.router, prefix="/api")  # Nouveau
+app.include_router(slots_router.router, prefix="/api")
+
 
 @app.get("/")
 async def root():
     return {
         "app": settings.APP_NAME,
-        "version": "0.1.0",
+        "version": "1.0.0",
         "status": "running"
     }
 
-@app.on_event("startup")
-async def startup_event():
-    """Événement de démarrage"""
-    logger.info("🚀 Application démarrée")
-    logger.info(f"📍 Environment: {getattr(settings, 'ENVIRONMENT', 'development')}")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Événement d'arrêt"""
-    logger.info("🛑 Application arrêtée")
 
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("🚀 Application démarrée")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    logger.info("🛑 Application arrêtée")

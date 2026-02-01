@@ -1,5 +1,5 @@
 """
-KRENOO - Configuration Backend
+KRENOO - Configuration Backend (Version gratuite)
 """
 from pydantic_settings import BaseSettings
 from typing import Optional
@@ -19,13 +19,6 @@ class Settings(BaseSettings):
     SUPABASE_KEY: str  # anon key
     SUPABASE_SERVICE_KEY: str  # service role key
     DATABASE_URL: str
-    
-    # === Stripe ===
-    STRIPE_SECRET_KEY: str
-    STRIPE_WEBHOOK_SECRET: str
-    STRIPE_PRICE_ID_PREMIUM: str  # 3.99€/mois
-    STRIPE_PRICE_ID_BOOST_SINGLE: Optional[str] = None
-    STRIPE_PRICE_ID_BOOST_PACK: Optional[str] = None
     
     # === Resend (emails) ===
     RESEND_API_KEY: str
@@ -55,38 +48,18 @@ settings = get_settings()
 
 
 # ============================================
-# QUOTAS PAR PLAN
+# QUOTAS (Version gratuite - plan unique)
 # ============================================
 
-PLAN_QUOTAS = {
-    "free": {
-        "max_alerts": 2,
-        "check_interval_minutes": 10,
-        "min_days_ahead": 1,
-        "max_days_ahead": 14,
-        "max_time_window_hours": 6,
-        "available_intervals": [10],
-    },
-    "premium": {
-        "max_alerts": 10,
-        "check_interval_minutes": 3,
-        "min_days_ahead": 0,
-        "max_days_ahead": 60,
-        "max_time_window_hours": 12,
-        "available_intervals": [3],
-    },
-}
-
-# Boost configuration
-BOOST_CONFIG = {
-    "check_interval_seconds": 30,  # 30 secondes !
-    "duration_hours": 24,
-    "single_price_cents": 149,  # 1.49€
-    "pack_count": 5,
-    "pack_price_cents": 599,  # 5.99€
+APP_QUOTAS = {
+    "max_alerts": 3,
+    "check_interval_minutes": 3,
+    "min_days_ahead": 0,  # Aujourd'hui
+    "max_days_ahead": 60,
+    "max_time_window_hours": 12,
 }
 
 
-def get_quotas_for_plan(plan: str) -> dict:
-    """Retourne les quotas pour un plan donné"""
-    return PLAN_QUOTAS.get(plan, PLAN_QUOTAS["free"])
+def get_quotas() -> dict:
+    """Retourne les quotas de l'application"""
+    return APP_QUOTAS

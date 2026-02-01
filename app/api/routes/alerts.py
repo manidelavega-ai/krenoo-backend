@@ -1,19 +1,19 @@
 """
-Routes API pour la gestion des alertes
+Routes API pour la gestion des alertes (Version gratuite)
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from sqlalchemy.orm import selectinload
-from datetime import date, timedelta, datetime, timezone
+from datetime import date, timedelta
 from typing import List
 from uuid import UUID
 import logging
 
 from app.core.database import get_db
 from app.core.auth import get_current_user
-from app.core.config import PLAN_QUOTAS, BOOST_CONFIG
-from app.models.models import UserAlert, Club, Subscription, DetectedSlot, UserBoost
+from app.core.config import APP_QUOTAS
+from app.models.models import UserAlert, Club, DetectedSlot
 from app.schemas.schemas import AlertCreate, AlertResponse, AlertUpdate, DetectedSlotResponse
 
 logger = logging.getLogger(__name__)
@@ -26,19 +26,11 @@ async def create_alert(
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Créer une nouvelle alerte avec validation plan Free/Premium"""
-    
-    # Vérifier le plan de l'utilisateur
-    result = await db.execute(
-        select(Subscription).where(Subscription.user_id == current_user.id)
-    )
-    subscription = result.scalar_one_or_none()
-    plan = subscription.plan if subscription else "free"
-    quota = PLAN_QUOTAS[plan]
+    """Créer une nouvelle alerte"""
     
     # === VALIDATION QUOTAS ===
     
-    # 1. Vérifier quota alertes
+    # 1. Vérifier quota alertes actives
     result = await db.execute(
         select(UserAlert).where(
             UserAlert.user_id == current_user.id,
@@ -47,27 +39,27 @@ async def create_alert(
     )
     active_alerts = len(result.scalars().all())
     
-    if active_alerts >= quota["max_alerts"]:
+    if active_alerts >= APP_QUOTAS["max_alerts"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Quota atteint: max {quota['max_alerts']} alerte(s) pour le plan {plan}"
+            detail=f"Quota atteint: maximum {APP_QUOTAS['max_alerts']} alertes actives"
         )
     
     # 2. Vérifier plage de dates
     today = date.today()
-    min_date = today + timedelta(days=quota["min_days_ahead"])
-    max_date = today + timedelta(days=quota["max_days_ahead"])
+    min_date = today + timedelta(days=APP_QUOTAS["min_days_ahead"])
+    max_date = today + timedelta(days=APP_QUOTAS["max_days_ahead"])
     
     if alert_data.target_date < min_date:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Plan {plan}: La date doit être au minimum {min_date.strftime('%d/%m/%Y')}"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"La date doit être au minimum {min_date.strftime('%d/%m/%Y')}"
         )
     
     if alert_data.target_date > max_date:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Plan {plan}: La date ne peut pas dépasser {max_date.strftime('%d/%m/%Y')}"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"La date ne peut pas dépasser {max_date.strftime('%d/%m/%Y')}"
         )
     
     # 3. Vérifier plage horaire
@@ -75,10 +67,10 @@ async def create_alert(
     time_to_minutes = alert_data.time_to.hour * 60 + alert_data.time_to.minute
     time_window_hours = (time_to_minutes - time_from_minutes) / 60
     
-    if time_window_hours > quota["max_time_window_hours"]:
+    if time_window_hours > APP_QUOTAS["max_time_window_hours"]:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Plan {plan}: La plage horaire est limitée à {quota['max_time_window_hours']}h"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"La plage horaire est limitée à {APP_QUOTAS['max_time_window_hours']}h"
         )
     
     # 4. Vérifier que le club existe
@@ -89,20 +81,6 @@ async def create_alert(
     if not club:
         raise HTTPException(status_code=404, detail="Club non trouvé")
     
-    # 5. Si use_boost, vérifier que l'utilisateur a des boosts
-    user_boost = None
-    if alert_data.use_boost:
-        result = await db.execute(
-            select(UserBoost).where(UserBoost.user_id == current_user.id)
-        )
-        user_boost = result.scalar_one_or_none()
-        
-        if not user_boost or user_boost.boost_count < 1:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Aucun boost disponible"
-            )
-    
     # === CRÉATION ALERTE ===
     
     new_alert = UserAlert(
@@ -112,28 +90,15 @@ async def create_alert(
         time_from=alert_data.time_from,
         time_to=alert_data.time_to,
         indoor_only=alert_data.indoor_only,
-        check_interval_minutes=quota["check_interval_minutes"],
+        check_interval_minutes=APP_QUOTAS["check_interval_minutes"],
         baseline_scraped=False
     )
-    
-    # Si use_boost, activer le boost sur l'alerte
-    if alert_data.use_boost and user_boost:
-        # Décrémenter le compteur de boosts
-        user_boost.boost_count -= 1
-        user_boost.updated_at = datetime.now(timezone.utc)
-        
-        # Activer le boost
-        boost_duration = timedelta(hours=BOOST_CONFIG["duration_hours"])
-        new_alert.boost_active = True
-        new_alert.boost_expires_at = datetime.now(timezone.utc) + boost_duration
-        
-        logger.info(f"🚀 Boost activé à la création pour user {current_user.id}")
     
     db.add(new_alert)
     await db.commit()
     await db.refresh(new_alert)
     
-    logger.info(f"✅ Alert created: {new_alert.id} by user {current_user.id} - Date: {alert_data.target_date} - Boost: {alert_data.use_boost}")
+    logger.info(f"✅ Alert created: {new_alert.id} by user {current_user.id} - Date: {alert_data.target_date}")
     
     return AlertResponse(
         id=new_alert.id,
@@ -147,8 +112,6 @@ async def create_alert(
         is_active=new_alert.is_active,
         check_interval_minutes=new_alert.check_interval_minutes,
         last_checked_at=new_alert.last_checked_at,
-        boost_active=new_alert.boost_active,
-        boost_expires_at=new_alert.boost_expires_at,
         created_at=new_alert.created_at,
     )
 
@@ -179,8 +142,6 @@ async def list_alerts(
             is_active=a.is_active,
             check_interval_minutes=a.check_interval_minutes,
             last_checked_at=a.last_checked_at,
-            boost_active=a.boost_active,
-            boost_expires_at=a.boost_expires_at,
             created_at=a.created_at,
         )
         for a in alerts
@@ -258,8 +219,6 @@ async def update_alert(
         is_active=alert.is_active,
         check_interval_minutes=alert.check_interval_minutes,
         last_checked_at=alert.last_checked_at,
-        boost_active=alert.boost_active,
-        boost_expires_at=alert.boost_expires_at,
         created_at=alert.created_at,
     )
 
