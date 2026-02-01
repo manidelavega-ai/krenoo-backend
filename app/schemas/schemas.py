@@ -114,6 +114,23 @@ class UserResponse(BaseModel):
     email: str
     created_at: Optional[datetime] = None
 
+class UserPreferenceBase(BaseModel):
+    preferred_region_slug: str | None = None
+
+class UserPreferenceCreate(UserPreferenceBase):
+    pass
+
+class UserPreferenceUpdate(UserPreferenceBase):
+    pass
+
+class UserPreferenceResponse(UserPreferenceBase):
+    user_id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+class Config:
+    from_attributes = True
+
 
 # ============================================
 # PUSH TOKENS

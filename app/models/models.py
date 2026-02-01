@@ -92,3 +92,14 @@ class PushToken(Base):
     device_type = Column(String(20))  # 'ios' ou 'android'
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+class UserPreference(Base):
+    __tablename__ = "user_preferences"
+    
+    user_id = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="CASCADE"), primary_key=True)
+    preferred_region_slug = Column(String(100), ForeignKey("regions.slug"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relations
+    region = relationship("Region", backref="user_preferences")

@@ -1,95 +1,135 @@
-"""
-Routes API pour les utilisateurs (Version gratuite)
-"""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from uuid import UUID
+
 from app.core.database import get_db
 from app.core.auth import get_current_user
 from app.core.config import APP_QUOTAS
-from app.models.models import PushToken
-from pydantic import BaseModel
-import logging
+from app.models.models import PushToken, UserPreference, Region
+from app.schemas.schemas import (
+    PushTokenCreate,
+    PushTokenResponse,
+    UserPreferenceUpdate,
+    UserPreferenceResponse,
+)
 
-logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/users", tags=["users"])
-
-
-class QuotasResponse(BaseModel):
-    max_alerts: int
-    check_interval_minutes: int
-    min_days_ahead: int
-    max_days_ahead: int
-    max_time_window_hours: int
+router = APIRouter(prefix="/users", tags=["users"])
 
 
-class UserInfoResponse(BaseModel):
-    id: str
-    email: str
-    quotas: QuotasResponse
+@router.get("/me")
+async def get_current_user_info(current_user: dict = Depends(get_current_user)):
+    """Retourne les infos de l'utilisateur connecté."""
+    return {
+        "id": current_user["sub"],
+        "phone": current_user.get("phone"),
+        "created_at": current_user.get("created_at"),
+    }
 
 
-@router.get("/quotas", response_model=QuotasResponse)
-async def get_user_quotas(current_user=Depends(get_current_user)):
-    """Retourne les quotas de l'application"""
-    return QuotasResponse(**APP_QUOTAS)
+@router.get("/quotas")
+async def get_user_quotas(current_user: dict = Depends(get_current_user)):
+    """Retourne les quotas de l'application (identiques pour tous)."""
+    return APP_QUOTAS
 
 
-@router.get("/me", response_model=UserInfoResponse)
-async def get_current_user_info(current_user=Depends(get_current_user)):
-    """Retourne les infos de l'utilisateur connecté"""
-    return UserInfoResponse(
-        id=str(current_user.id),
-        email=current_user.email,
-        quotas=QuotasResponse(**APP_QUOTAS)
+# ============================================
+# PRÉFÉRENCES UTILISATEUR
+# ============================================
+
+@router.get("/preferences", response_model=UserPreferenceResponse | None)
+async def get_preferences(
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Récupère les préférences de l'utilisateur."""
+    user_id = UUID(current_user["sub"])
+    
+    result = await db.execute(
+        select(UserPreference).where(UserPreference.user_id == user_id)
     )
+    pref = result.scalar_one_or_none()
+    
+    return pref
 
 
-# === PUSH NOTIFICATIONS ===
+@router.put("/preferences", response_model=UserPreferenceResponse)
+async def update_preferences(
+    data: UserPreferenceUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Crée ou met à jour les préférences utilisateur."""
+    user_id = UUID(current_user["sub"])
+    
+    # Vérifier que la région existe
+    if data.preferred_region_slug:
+        region_result = await db.execute(
+            select(Region).where(Region.slug == data.preferred_region_slug)
+        )
+        if not region_result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Région '{data.preferred_region_slug}' non trouvée",
+            )
+    
+    # Chercher préférence existante
+    result = await db.execute(
+        select(UserPreference).where(UserPreference.user_id == user_id)
+    )
+    pref = result.scalar_one_or_none()
+    
+    if pref:
+        # Update
+        pref.preferred_region_slug = data.preferred_region_slug
+    else:
+        # Create
+        pref = UserPreference(
+            user_id=user_id,
+            preferred_region_slug=data.preferred_region_slug,
+        )
+        db.add(pref)
+    
+    await db.commit()
+    await db.refresh(pref)
+    
+    return pref
 
-class PushTokenRequest(BaseModel):
-    token: str
-    device_type: str  # 'ios' ou 'android'
 
-
-class PushTokenResponse(BaseModel):
-    success: bool
-    message: str
-
+# ============================================
+# PUSH TOKENS
+# ============================================
 
 @router.post("/register-push-token", response_model=PushTokenResponse)
 async def register_push_token(
-    data: PushTokenRequest,
-    current_user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    data: PushTokenCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
-    """Enregistre ou met à jour le push token de l'utilisateur"""
+    """Enregistre ou met à jour un token push Expo."""
+    user_id = UUID(current_user["sub"])
     
-    try:
-        result = await db.execute(
-            select(PushToken).where(PushToken.token == data.token)
+    # Chercher token existant
+    result = await db.execute(
+        select(PushToken).where(PushToken.token == data.token)
+    )
+    existing = result.scalar_one_or_none()
+    
+    if existing:
+        existing.user_id = user_id
+        existing.device_type = data.device_type
+        existing.is_active = True
+        token = existing
+    else:
+        token = PushToken(
+            user_id=user_id,
+            token=data.token,
+            device_type=data.device_type,
+            is_active=True,
         )
-        existing_token = result.scalar_one_or_none()
-        
-        if existing_token:
-            if existing_token.user_id != current_user.id:
-                existing_token.user_id = current_user.id
-            existing_token.device_type = data.device_type
-            existing_token.is_active = True
-            logger.info(f"📱 Push token mis à jour pour user {current_user.id}")
-        else:
-            new_token = PushToken(
-                user_id=current_user.id,
-                token=data.token,
-                device_type=data.device_type,
-                is_active=True
-            )
-            db.add(new_token)
-            logger.info(f"📱 Nouveau push token enregistré pour user {current_user.id}")
-        
-        await db.commit()
-        return PushTokenResponse(success=True, message="Token enregistré")
-        
-    except Exception as e:
-        logger.error(f"❌ Erreur enregistrement push token: {e}")
-        raise HTTPException(status_code=500, detail="Erreur enregistrement token")
+        db.add(token)
+    
+    await db.commit()
+    await db.refresh(token)
+    
+    return token
