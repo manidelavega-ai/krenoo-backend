@@ -4,12 +4,12 @@ FastAPI application principale
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.routes import alerts, clubs, stripe, users, boosts
+from app.api.routes import alerts, clubs, stripe, users, boosts, slots_router
 import logging
 
 # Configuration du logging
 logging.basicConfig(
-    level=logging.INFO,  # Valeur par défaut si LOG_LEVEL n'existe pas
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -34,8 +34,8 @@ app.include_router(alerts.router)
 app.include_router(clubs.router)
 app.include_router(stripe.router)
 app.include_router(users.router)
-app.include_router(clubs.router)
 app.include_router(boosts.router, prefix="/api")
+app.include_router(slots_router.router, prefix="/api")  # Nouveau
 
 @app.get("/")
 async def root():
@@ -59,5 +59,3 @@ async def shutdown_event():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
-
-
