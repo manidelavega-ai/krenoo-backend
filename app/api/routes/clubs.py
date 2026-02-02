@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.models.models import Club
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/clubs", tags=["clubs"])
+router = APIRouter(prefix="/clubs", tags=["clubs"])  # ← enlever "/api"
 
 # === SCHEMAS ===
 
@@ -253,22 +253,30 @@ async def fetch_club_info_from_doinsport(slug: str) -> dict:
 
 # === ROUTES ===
 
-@router.get("", response_model=List[ClubResponse])
-async def list_clubs(db: AsyncSession = Depends(get_db)):
-    """Liste tous les clubs actifs"""
-    result = await db.execute(select(Club).where(Club.enabled == True))
+@router.get("")
+async def list_clubs(
+    region: Optional[str] = Query(None, description="Filtrer par region_slug"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Liste des clubs actifs, optionnellement filtrés par région"""
+    query = select(Club).where(Club.enabled == True)
+    
+    if region:
+        query = query.where(Club.region_slug == region)
+    
+    query = query.order_by(Club.name)
+    result = await db.execute(query)
     clubs = result.scalars().all()
     
     return [
-        ClubResponse(
-            id=str(club.id),
-            name=club.name,
-            slug=club.slug if hasattr(club, 'slug') else "",
-            city=club.city,
-            address=club.address,
-            enabled=club.enabled
-        )
-        for club in clubs
+        {
+            "id": str(c.id),
+            "name": c.name,
+            "city": c.city,
+            "doinsport_id": str(c.doinsport_id),
+            "region_slug": c.region_slug
+        }
+        for c in clubs
     ]
 
 
@@ -359,28 +367,3 @@ async def add_club(
         enabled=new_club.enabled
     )
     
-@router.get("/clubs")
-async def get_clubs(
-    region: Optional[str] = Query(None, description="Filtrer par region_slug"),
-    db: AsyncSession = Depends(get_db)
-):
-    """Liste des clubs actifs, optionnellement filtrés par région"""
-    query = select(Club).where(Club.enabled == True)
-    
-    if region:
-        query = query.where(Club.region_slug == region)
-    
-    query = query.order_by(Club.name)
-    result = await db.execute(query)
-    clubs = result.scalars().all()
-    
-    return [
-        {
-            "id": str(c.id),
-            "name": c.name,
-            "city": c.city,
-            "doinsport_id": str(c.doinsport_id),
-            "region_slug": c.region_slug
-        }
-        for c in clubs
-    ]
