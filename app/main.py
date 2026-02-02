@@ -28,9 +28,9 @@ app.add_middleware(
 )
 
 # Routes
-app.include_router(alerts.router)
-app.include_router(clubs.router)
-app.include_router(users.router)
+app.include_router(alerts.router, prefix="/api")
+app.include_router(clubs.router, prefix="/api")
+app.include_router(users.router, prefix="/api")
 app.include_router(slots_router.router, prefix="/api")
 
 
