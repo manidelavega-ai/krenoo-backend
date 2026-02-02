@@ -17,7 +17,7 @@ from app.models.models import UserAlert, Club, DetectedSlot
 from app.schemas.schemas import AlertCreate, AlertResponse, AlertUpdate, DetectedSlotResponse
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/alerts", tags=["alerts"])
+router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 
 @router.post("", response_model=AlertResponse, status_code=status.HTTP_201_CREATED)
