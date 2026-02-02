@@ -13,7 +13,7 @@ from app.core.database import AsyncSessionLocal
 from sqlalchemy import select, text
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/slots", tags=["slots"])
+router = APIRouter(tags=["slots"])
 
 DOINSPORT_BASE = settings.DOINSPORT_API_BASE
 PADEL_ACTIVITY_ID = settings.PADEL_ACTIVITY_ID
