@@ -18,17 +18,17 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 
 @router.get("/me")
-async def get_current_user_info(current_user: dict = Depends(get_current_user)):
+async def get_current_user_info(current_user=Depends(get_current_user)):
     """Retourne les infos de l'utilisateur connecté."""
     return {
-        "id": current_user["sub"],
-        "phone": current_user.get("phone"),
-        "created_at": current_user.get("created_at"),
+        "id": current_user.id,
+        "phone": current_user.phone,
+        "created_at": current_user.created_at,
     }
 
 
 @router.get("/quotas")
-async def get_user_quotas(current_user: dict = Depends(get_current_user)):
+async def get_user_quotas(current_user=Depends(get_current_user)):
     """Retourne les quotas de l'application (identiques pour tous)."""
     return APP_QUOTAS
 
@@ -40,10 +40,10 @@ async def get_user_quotas(current_user: dict = Depends(get_current_user)):
 @router.get("/preferences", response_model=UserPreferenceResponse | None)
 async def get_preferences(
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     """Récupère les préférences de l'utilisateur."""
-    user_id = UUID(current_user["sub"])
+    user_id = UUID(current_user.id)
     
     result = await db.execute(
         select(UserPreference).where(UserPreference.user_id == user_id)
@@ -57,10 +57,10 @@ async def get_preferences(
 async def update_preferences(
     data: UserPreferenceUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     """Crée ou met à jour les préférences utilisateur."""
-    user_id = UUID(current_user["sub"])
+    user_id = UUID(current_user.id)
     
     # Vérifier que la région existe
     if data.preferred_region_slug:
@@ -104,10 +104,10 @@ async def update_preferences(
 async def register_push_token(
     data: PushTokenCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     """Enregistre ou met à jour un token push Expo."""
-    user_id = UUID(current_user["sub"])
+    user_id = UUID(current_user.id)
     
     # Chercher token existant
     result = await db.execute(
