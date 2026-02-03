@@ -151,8 +151,6 @@ class PushTokenResponse(BaseModel):
         from_attributes = True
         
 
-
-
 # ============================================
 # REGIONS
 # ============================================   

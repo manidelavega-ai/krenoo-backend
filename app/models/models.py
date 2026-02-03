@@ -11,7 +11,6 @@ from sqlalchemy.sql import func
 import uuid
 from app.core.database import Base
 
-
 class Region(Base):
     """
     Régions disponibles (Zones de jeu).
