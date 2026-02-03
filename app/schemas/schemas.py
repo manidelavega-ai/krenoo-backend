@@ -149,3 +149,22 @@ class PushTokenResponse(BaseModel):
     
     class Config:
         from_attributes = True
+        
+
+
+
+# ============================================
+# REGIONS
+# ============================================   
+class RegionResponse(BaseModel):
+    slug: str
+    name: str
+    display_name: str
+    cities: List[str]
+    # Nouveaux champs
+    parent_region_slug: Optional[str] = None
+    parent_region_name: Optional[str] = None
+    is_flagship: bool = False
+    
+    class Config:
+        from_attributes = True

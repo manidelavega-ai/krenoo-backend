@@ -13,13 +13,28 @@ from app.core.database import Base
 
 
 class Region(Base):
-    """Régions disponibles pour la recherche."""
+    """
+    Régions disponibles (Zones de jeu).
+    Exemple : 
+      slug="rennes-metropole"
+      display_name="Rennes & alentours"
+      parent_region_slug="bretagne"      <-- NOUVEAU
+      parent_region_name="Bretagne"      <-- NOUVEAU
+      is_flagship=True                   <-- NOUVEAU (Sélectionné par défaut)
+    """
     __tablename__ = "regions"
 
     slug = Column(String(100), primary_key=True)
     name = Column(String(100), nullable=False)
     display_name = Column(String(100), nullable=False)
     cities = Column(ARRAY(String), nullable=True)
+    
+    # --- NOUVEAUX CHAMPS ---
+    parent_region_slug = Column(String(100), nullable=True) # ex: 'bretagne'
+    parent_region_name = Column(String(100), nullable=True) # ex: 'Bretagne'
+    is_flagship = Column(Boolean, default=False)            # ex: True pour la ville principale
+    # -----------------------
+
     center_lat = Column(Numeric(10, 7), nullable=True)
     center_lng = Column(Numeric(10, 7), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
