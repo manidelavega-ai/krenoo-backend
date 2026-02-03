@@ -15,24 +15,19 @@ from app.core.database import Base
 class Region(Base):
     """
     Régions disponibles (Zones de jeu).
-    Exemple : 
-      slug="rennes-metropole"
-      display_name="Rennes & alentours"
-      parent_region_slug="bretagne"      <-- NOUVEAU
-      parent_region_name="Bretagne"      <-- NOUVEAU
-      is_flagship=True                   <-- NOUVEAU (Sélectionné par défaut)
+    Désormais hiérarchisées : Région Administrative > Zone Métropole
     """
     __tablename__ = "regions"
 
     slug = Column(String(100), primary_key=True)
-    name = Column(String(100), nullable=False)
-    display_name = Column(String(100), nullable=False)
+    name = Column(String(100), nullable=False)        # Nom technique zone (ex: rennes-metropole)
+    display_name = Column(String(100), nullable=False) # Nom affiché zone (ex: Rennes & alentours)
     cities = Column(ARRAY(String), nullable=True)
     
     # --- NOUVEAUX CHAMPS ---
-    parent_region_slug = Column(String(100), nullable=True) # ex: 'bretagne'
-    parent_region_name = Column(String(100), nullable=True) # ex: 'Bretagne'
-    is_flagship = Column(Boolean, default=False)            # ex: True pour la ville principale
+    parent_region_slug = Column(String(100), nullable=True) # ID technique région parente (ex: bretagne)
+    parent_region_name = Column(String(100), nullable=True) # Nom affiché région parente (ex: Bretagne)
+    is_flagship = Column(Boolean, default=False)            # True si c'est la zone par défaut de la région
     # -----------------------
 
     center_lat = Column(Numeric(10, 7), nullable=True)

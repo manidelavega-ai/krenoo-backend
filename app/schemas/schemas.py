@@ -160,11 +160,16 @@ class RegionResponse(BaseModel):
     slug: str
     name: str
     display_name: str
-    cities: List[str]
-    # Nouveaux champs
+    cities: list[str]
+    
+    # --- AJOUTS ---
     parent_region_slug: Optional[str] = None
     parent_region_name: Optional[str] = None
     is_flagship: bool = False
+    # --------------
+
+    center_lat: Optional[float] = None
+    center_lng: Optional[float] = None
     
     class Config:
         from_attributes = True
