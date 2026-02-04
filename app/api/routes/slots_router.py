@@ -28,7 +28,7 @@ class SlotInfo(BaseModel):
     playground_name: str
     indoor: bool
     start_time: str
-    durations: list[DurationOption]  # Liste des durées disponibles
+    durations: list[DurationOption]
 
 class ClubResult(BaseModel):
     club_id: str
@@ -47,23 +47,34 @@ class SearchResponse(BaseModel):
 
 @router.get("/slots/regions")
 async def get_regions():
-    """Liste des régions disponibles"""
+    """Liste des régions disponibles avec hiérarchie"""
     async with AsyncSessionLocal() as db:
+        # CORRECTION ICI : Ajout des nouvelles colonnes dans SELECT et GROUP BY
         result = await db.execute(text("""
             SELECT r.slug, r.display_name, r.cities, 
+                   r.parent_region_slug, r.parent_region_name, r.is_flagship,
                    COUNT(c.id) as clubs_count,
                    COALESCE(SUM(c.courts_count), 0) as total_courts
             FROM regions r
             LEFT JOIN clubs c ON c.region_slug = r.slug AND c.enabled = true
-            GROUP BY r.slug, r.display_name, r.cities
+            GROUP BY r.slug, r.display_name, r.cities, r.parent_region_slug, r.parent_region_name, r.is_flagship
             ORDER BY r.display_name
         """))
         rows = result.fetchall()
+        
         return [
             {
                 "slug": r.slug,
+                "name": r.slug, # Fallback pour le champ 'name' requis par le schéma
                 "display_name": r.display_name,
                 "cities": r.cities or [],
+                
+                # --- NOUVEAUX CHAMPS ---
+                "parent_region_slug": r.parent_region_slug,
+                "parent_region_name": r.parent_region_name,
+                "is_flagship": r.is_flagship,
+                # -----------------------
+                
                 "clubs_count": r.clubs_count,
                 "total_courts": int(r.total_courts)
             }
@@ -89,7 +100,14 @@ async def search_slots(
         clubs = result.fetchall()
     
     if not clubs:
-        raise HTTPException(404, f"Aucun club trouvé pour la région '{region}'")
+        # On ne renvoie pas 404 pour ne pas bloquer l'UI, mais une réponse vide
+        return SearchResponse(
+            region=region,
+            date=str(date),
+            total_slots=0,
+            clubs_with_availability=0,
+            results=[]
+        )
     
     async def fetch_club_slots(club):
         try:
@@ -106,7 +124,7 @@ async def search_slots(
                 resp.raise_for_status()
                 data = resp.json()
             
-            slots_dict = {}  # Clé: (playground_id, start_time)
+            slots_dict = {}
             for pg in data.get("hydra:member", []):
                 is_indoor = pg.get("indoor", False)
                 if indoor_only is not None and is_indoor != indoor_only:
@@ -132,12 +150,10 @@ async def search_slots(
                                         durations=[duration_opt]
                                     )
                                 else:
-                                    # Ajouter la durée si pas déjà présente
                                     existing_durations = [d.duration_minutes for d in slots_dict[key].durations]
                                     if duration_opt.duration_minutes not in existing_durations:
                                         slots_dict[key].durations.append(duration_opt)
             
-            # Trier les durées par ordre croissant
             slots = []
             for slot in slots_dict.values():
                 slot.durations.sort(key=lambda d: d.duration_minutes)
