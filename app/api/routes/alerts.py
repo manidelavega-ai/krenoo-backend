@@ -229,10 +229,10 @@ async def update_alert(
     )
     detected_count = count_result.scalar() or 0
 
-return AlertResponse(
-    # ... existants ...
-    detected_count=detected_count,
-)
+    return AlertResponse(
+        # ... existants ...
+        detected_count=detected_count,
+    )
     
     return AlertResponse(
         id=alert.id,
