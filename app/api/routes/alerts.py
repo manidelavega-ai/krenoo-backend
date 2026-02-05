@@ -105,6 +105,7 @@ async def create_alert(
         user_id=new_alert.user_id,
         club_id=new_alert.club_id,
         club_name=club.name,
+        club_slug=club.slug,
         target_date=new_alert.target_date,
         time_from=new_alert.time_from,
         time_to=new_alert.time_to,
@@ -123,7 +124,6 @@ async def list_alerts(
     db: AsyncSession = Depends(get_db)
 ):
     """Liste toutes les alertes de l'utilisateur avec le nombre de créneaux détectés"""
-    from sqlalchemy import func
     
     # Sous-requête pour compter les detected_slots par alerte
     count_subq = (
@@ -150,6 +150,7 @@ async def list_alerts(
             user_id=alert.user_id,
             club_id=alert.club_id,
             club_name=alert.club.name if alert.club else None,
+            club_slug=alert.club.slug if alert.club else None,
             target_date=alert.target_date,
             time_from=alert.time_from,
             time_to=alert.time_to,
@@ -230,15 +231,11 @@ async def update_alert(
     detected_count = count_result.scalar() or 0
 
     return AlertResponse(
-        # ... existants ...
-        detected_count=detected_count,
-    )
-    
-    return AlertResponse(
         id=alert.id,
         user_id=alert.user_id,
         club_id=alert.club_id,
         club_name=alert.club.name if alert.club else None,
+        club_slug=alert.club.slug if alert.club else None,
         target_date=alert.target_date,
         time_from=alert.time_from,
         time_to=alert.time_to,
@@ -247,6 +244,7 @@ async def update_alert(
         check_interval_minutes=alert.check_interval_minutes,
         last_checked_at=alert.last_checked_at,
         created_at=alert.created_at,
+        detected_count=detected_count,
     )
 
 

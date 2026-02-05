@@ -64,6 +64,7 @@ class AlertResponse(BaseModel):
     last_checked_at: Optional[datetime]
     created_at: datetime
     detected_count: int = 0
+    club_slug: Optional[str] = None
     
     class Config:
         from_attributes = True
