@@ -5,6 +5,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.routes import alerts, clubs, users, slots_router
+from app.api.routes.debug import router as debug_router
+
 import logging
 
 logging.basicConfig(
@@ -32,6 +34,7 @@ app.include_router(alerts.router, prefix="/api")
 app.include_router(clubs.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(slots_router.router, prefix="/api")
+app.include_router(debug_router, prefix="/api")
 
 
 @app.get("/")
