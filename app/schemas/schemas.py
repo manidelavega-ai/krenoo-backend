@@ -55,6 +55,7 @@ class AlertResponse(BaseModel):
     user_id: UUID
     club_id: UUID
     club_name: Optional[str] = None
+    club_slug: Optional[str] = None
     target_date: date
     time_from: time
     time_to: time
@@ -64,7 +65,6 @@ class AlertResponse(BaseModel):
     last_checked_at: Optional[datetime]
     created_at: datetime
     detected_count: int = 0
-    club_slug: Optional[str] = None
     
     class Config:
         from_attributes = True
