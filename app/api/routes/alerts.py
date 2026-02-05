@@ -3,7 +3,7 @@ Routes API pour la gestion des alertes (Version gratuite)
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 from sqlalchemy.orm import selectinload
 from datetime import date, timedelta
 from typing import List
@@ -113,6 +113,7 @@ async def create_alert(
         check_interval_minutes=new_alert.check_interval_minutes,
         last_checked_at=new_alert.last_checked_at,
         created_at=new_alert.created_at,
+        detected_count=0,
     )
 
 
@@ -121,30 +122,45 @@ async def list_alerts(
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Liste toutes les alertes de l'utilisateur"""
+    """Liste toutes les alertes de l'utilisateur avec le nombre de créneaux détectés"""
+    from sqlalchemy import func
+    
+    # Sous-requête pour compter les detected_slots par alerte
+    count_subq = (
+        select(
+            DetectedSlot.alert_id,
+            func.count(DetectedSlot.id).label('detected_count')
+        )
+        .group_by(DetectedSlot.alert_id)
+        .subquery()
+    )
+    
+    # Requête principale avec LEFT JOIN
     result = await db.execute(
-        select(UserAlert)
+        select(UserAlert, func.coalesce(count_subq.c.detected_count, 0).label('detected_count'))
         .options(selectinload(UserAlert.club))
+        .outerjoin(count_subq, UserAlert.id == count_subq.c.alert_id)
         .where(UserAlert.user_id == current_user.id)
     )
-    alerts = result.scalars().all()
+    rows = result.all()
     
     return [
         AlertResponse(
-            id=a.id,
-            user_id=a.user_id,
-            club_id=a.club_id,
-            club_name=a.club.name if a.club else None,
-            target_date=a.target_date,
-            time_from=a.time_from,
-            time_to=a.time_to,
-            indoor_only=a.indoor_only,
-            is_active=a.is_active,
-            check_interval_minutes=a.check_interval_minutes,
-            last_checked_at=a.last_checked_at,
-            created_at=a.created_at,
+            id=alert.id,
+            user_id=alert.user_id,
+            club_id=alert.club_id,
+            club_name=alert.club.name if alert.club else None,
+            target_date=alert.target_date,
+            time_from=alert.time_from,
+            time_to=alert.time_to,
+            indoor_only=alert.indoor_only,
+            is_active=alert.is_active,
+            check_interval_minutes=alert.check_interval_minutes,
+            last_checked_at=alert.last_checked_at,
+            created_at=alert.created_at,
+            detected_count=detected_count,
         )
-        for a in alerts
+        for alert, detected_count in rows
     ]
 
 
@@ -206,6 +222,17 @@ async def update_alert(
     await db.refresh(alert)
     
     logger.info(f"✅ Alert updated: {alert_id}")
+    
+    # Compter detected_slots pour cette alerte
+    count_result = await db.execute(
+        select(func.count(DetectedSlot.id)).where(DetectedSlot.alert_id == alert_id)
+    )
+    detected_count = count_result.scalar() or 0
+
+return AlertResponse(
+    # ... existants ...
+    detected_count=detected_count,
+)
     
     return AlertResponse(
         id=alert.id,

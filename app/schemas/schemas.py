@@ -63,6 +63,7 @@ class AlertResponse(BaseModel):
     check_interval_minutes: int
     last_checked_at: Optional[datetime]
     created_at: datetime
+    detected_count: int = 0
     
     class Config:
         from_attributes = True
