@@ -152,7 +152,8 @@ async def send_slot_push_notification(
     push_token: str,
     club_name: str,
     slot: Dict,
-    alert_id: str
+    alert_id: str,
+    booking_url: Optional[str] = None
 ) -> bool:
     """
     Envoie une notification push pour un nouveau créneau
@@ -168,7 +169,8 @@ async def send_slot_push_notification(
         "playground_name": slot['playground_name'],
         "date": slot['date'],
         "start_time": slot['start_time'],
-        "price": slot['price_total']
+        "price": slot['price_total'],
+        "booking_url": booking_url,
     }
     
     return await send_push_notification(

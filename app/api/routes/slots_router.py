@@ -34,6 +34,7 @@ class ClubResult(BaseModel):
     club_id: str
     club_name: str
     city: str
+    club_slug: Optional[str] = None
     slots: list[SlotInfo]
     slots_count: int
     error: Optional[str] = None
@@ -93,7 +94,7 @@ async def search_slots(
     
     async with AsyncSessionLocal() as db:
         result = await db.execute(text("""
-            SELECT c.id, c.doinsport_id, c.name, c.city
+            SELECT c.id, c.doinsport_id, c.name, c.city, c.slug
             FROM clubs c
             WHERE c.region_slug = :region AND c.enabled = true
         """), {"region": region})
@@ -159,19 +160,23 @@ async def search_slots(
                 slot.durations.sort(key=lambda d: d.duration_minutes)
                 slots.append(slot)
             
+            # Return succès
             return ClubResult(
                 club_id=str(club.id),
                 club_name=club.name,
                 city=club.city or "",
+                club_slug=club.slug if hasattr(club, 'slug') else None,
                 slots=slots,
                 slots_count=len(slots)
             )
         except Exception as e:
             logger.error(f"Erreur scraping {club.name}: {e}")
+            # Return erreur
             return ClubResult(
                 club_id=str(club.id),
                 club_name=club.name,
                 city=club.city or "",
+                club_slug=club.slug if hasattr(club, 'slug') else None,
                 slots=[],
                 slots_count=0,
                 error=str(e)
