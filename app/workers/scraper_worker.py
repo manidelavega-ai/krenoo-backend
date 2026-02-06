@@ -214,16 +214,11 @@ async def cleanup_expired_data():
             expired_alerts = result.scalars().all()
             
             for alert in expired_alerts:
-                alert.is_active = False
-                logger.info(f"📅 Alerte {alert.id} désactivée (expirée)")
-            
-            # Supprimer les DetectedSlots de plus de 7 jours
-            await db.execute(
-                delete(DetectedSlot).where(DetectedSlot.date < week_ago)
-            )
+                await db.delete(alert)  # CASCADE supprime les detected_slots
+                logger.info(f"🗑️ Alerte {alert.id} supprimée (date dépassée)")
             
             await db.commit()
-            logger.info(f"🧹 Cleanup: {len(expired_alerts)} alertes expirées")
+            logger.info(f"🧹 Cleanup: {len(expired_alerts)} alertes supprimées")
             
         except Exception as e:
             logger.error(f"❌ Erreur cleanup: {e}")
