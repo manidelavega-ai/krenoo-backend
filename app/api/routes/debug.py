@@ -4,12 +4,12 @@ Routes de debug (à désactiver en production)
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
-from uuid import UUID
+from uuid import UUID, uuid4
 from datetime import datetime, timezone
 
 from app.core.database import get_db
 from app.core.auth import get_current_user
-from app.models.models import UserAlert, Club, PushToken
+from app.models.models import UserAlert, Club, PushToken, DetectedSlot
 from app.services.push_service import send_push_notification
 
 router = APIRouter(prefix="/debug", tags=["debug"])
@@ -22,8 +22,9 @@ async def simulate_match_from_db(
     current_user=Depends(get_current_user),
 ):
     """
-    Récupère une VRAIE alerte en BDD, crée un FAUX créneau correspondant,
+    Récupère une VRAIE alerte en BDD, crée un créneau dans detected_slots,
     et envoie la notification push au propriétaire de l'alerte.
+    Le detected_count sera incrémenté → l'AlertCard passera en "Trouvé !".
     """
     try:
         alert_uuid = UUID(alert_id)
@@ -43,13 +44,11 @@ async def simulate_match_from_db(
         
     alert, club = row
 
-    # 2. Créer un créneau fictif qui matche parfaitement l'alerte
-    # On utilise target_date et time_from pour garantir le match
-    
-    # Gestion de la préférence indoor (si null, on met true par défaut pour le test)
+    # 2. Créer un créneau simulé
     is_indoor = alert.indoor_only if alert.indoor_only is not None else True
     
-    fake_slot = {
+    fake_playground_id = uuid4()
+    fake_slot_data = {
         "playground_name": "Terrain Démo (Simulé)",
         "club_name": club.name,
         "date": alert.target_date.strftime("%Y-%m-%d"), 
@@ -57,11 +56,28 @@ async def simulate_match_from_db(
         "duration": 90,
         "price_total": 32.0,
         "indoor": is_indoor,
-        "link": "https://doinsport.app/link-test"
     }
 
-    # 3. Récupérer les tokens de l'utilisateur PROPRIÉTAIRE de l'alerte
-    # (Pas forcément celui qui lance la commande, bien que ce soit souvent le même en dev)
+    # 3. INSÉRER dans detected_slots pour que detected_count s'incrémente
+    detected_slot = DetectedSlot(
+        id=uuid4(),
+        alert_id=alert.id,
+        club_id=club.id,
+        playground_id=fake_playground_id,
+        playground_name=fake_slot_data["playground_name"],
+        date=alert.target_date,
+        start_time=alert.time_from,
+        duration_minutes=fake_slot_data["duration"],
+        price_total=fake_slot_data["price_total"],
+        indoor=is_indoor,
+        email_sent=False,
+        push_sent=True,
+        detected_at=datetime.now(timezone.utc),
+    )
+    db.add(detected_slot)
+    await db.commit()
+
+    # 4. Récupérer les tokens de l'utilisateur PROPRIÉTAIRE de l'alerte
     tokens_result = await db.execute(
         select(PushToken).where(
             and_(
@@ -75,24 +91,28 @@ async def simulate_match_from_db(
     if not tokens:
         return {
             "status": "warning",
-            "message": "Alerte trouvée et créneau généré, mais aucun token push actif pour cet utilisateur.",
-            "simulated_slot": fake_slot
+            "message": "Créneau inséré en BDD (detected_slots) mais aucun token push actif.",
+            "detected_slot_id": str(detected_slot.id),
+            "simulated_slot": fake_slot_data
         }
 
-    # 4. Envoyer la notification
+    # 5. Envoyer la notification avec le bon type pour la navigation
     results = []
     for token in tokens:
-        title = f"🎾 Créneau trouvé !"
-        body = f"{fake_slot['club_name']} : {fake_slot['start_time']} le {datetime.strptime(fake_slot['date'], '%Y-%m-%d').strftime('%d/%m')} ({fake_slot['playground_name']})"
+        title = "🎾 Créneau trouvé !"
+        body = (
+            f"{fake_slot_data['club_name']} : {fake_slot_data['start_time']} "
+            f"le {alert.target_date.strftime('%d/%m')} "
+            f"({fake_slot_data['playground_name']})"
+        )
         
         success = await send_push_notification(
             push_token=token.token,
             title=title,
             body=body,
             data={
-                "type": "slot_found", # Type utilisé par l'app pour la navigation
+                "type": "new_slot",  # ← Type attendu par App.tsx pour naviguer vers Alertes
                 "alert_id": str(alert.id),
-                "slot": fake_slot
             }
         )
         results.append({
@@ -102,9 +122,10 @@ async def simulate_match_from_db(
 
     return {
         "status": "success", 
-        "message": f"Notification simulée pour l'alerte {alert.id}",
+        "message": f"Créneau inséré + notification envoyée pour l'alerte {alert.id}",
+        "detected_slot_id": str(detected_slot.id),
         "target_user": str(alert.user_id),
-        "simulated_data": fake_slot,
+        "simulated_data": fake_slot_data,
         "push_results": results
     }
 
@@ -122,7 +143,6 @@ async def simulate_slot_notification(
     """
     user_id = UUID(current_user.id)
     
-    # Récupérer les push tokens de l'utilisateur connecté
     result = await db.execute(
         select(PushToken).where(
             and_(
@@ -139,7 +159,6 @@ async def simulate_slot_notification(
             detail="Aucun push token enregistré. Ouvrez l'app mobile d'abord."
         )
     
-    # Données de test par défaut
     club_name = "Club Test"
     slot_data = {
         "playground_name": "Padel 3",
@@ -149,7 +168,6 @@ async def simulate_slot_notification(
         "indoor": True
     }
     
-    # Si alert_id fourni, récupérer les vraies infos (Support legacy pour ce paramètre)
     if alert_id:
         try:
             alert_uuid = UUID(alert_id)
@@ -174,9 +192,8 @@ async def simulate_slot_notification(
                 slot_data["date"] = alert.target_date.strftime("%Y-%m-%d")
                 slot_data["start_time"] = alert.time_from.strftime("%H:%M")
         except ValueError:
-            pass # On ignore si l'ID est invalide et on envoie le fake par défaut
+            pass
     
-    # Envoyer la notification
     results = []
     for token in tokens:
         title = f"🎾 Créneau dispo - {club_name}"
@@ -187,7 +204,7 @@ async def simulate_slot_notification(
             title=title,
             body=body,
             data={
-                "type": "test_notification",
+                "type": "new_slot",  # ← Corrigé pour navigation
                 "club_name": club_name,
                 **slot_data
             }
