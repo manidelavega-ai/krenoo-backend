@@ -62,7 +62,7 @@ async def track_event(
         source=payload.source,
         club_id=UUID(payload.club_id) if payload.club_id else None,
         alert_id=UUID(payload.alert_id) if payload.alert_id else None,
-        metadata_=json.dumps(payload.metadata) if payload.metadata else None,
+        metadata_=payload.metadata,
     )
     db.add(event)
     await db.commit()

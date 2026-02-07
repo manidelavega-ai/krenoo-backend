@@ -10,6 +10,8 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
 from app.core.database import Base
+from sqlalchemy.dialects.postgresql import JSONB
+
 
 class Region(Base):
     """
@@ -140,5 +142,5 @@ class TrackingEvent(Base):
     source = Column(String(30), nullable=False)        # alert, search, push_notification
     club_id = Column(UUID(as_uuid=True), ForeignKey("clubs.id"), nullable=True)
     alert_id = Column(UUID(as_uuid=True), ForeignKey("user_alerts.id", ondelete="SET NULL"), nullable=True)
-    metadata_ = Column("metadata", Text, nullable=True)  # JSON string
+    metadata_ = Column("metadata", JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
