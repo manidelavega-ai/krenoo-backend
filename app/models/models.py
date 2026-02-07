@@ -130,3 +130,15 @@ class UserPreference(Base):
     
     # Relations
     region = relationship("Region", backref="user_preferences")
+    
+class TrackingEvent(Base):
+    __tablename__ = "tracking_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), nullable=True)
+    event_type = Column(String(50), nullable=False)   # booking_click, share_click
+    source = Column(String(30), nullable=False)        # alert, search, push_notification
+    club_id = Column(UUID(as_uuid=True), ForeignKey("clubs.id"), nullable=True)
+    alert_id = Column(UUID(as_uuid=True), ForeignKey("user_alerts.id", ondelete="SET NULL"), nullable=True)
+    metadata_ = Column("metadata", Text, nullable=True)  # JSON string
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
