@@ -46,8 +46,8 @@ async def get_user_info(user_id: str) -> tuple[str, str]:
         logger.error(f"❌ Erreur récupération user {user_id}: {e}")
     return None, None
 
-
-async def send_notification(user_id: str, club_name: str, slot: dict, detected_slot: DetectedSlot, alert_id: str, db: AsyncSession, club_slug: str = None):    """Envoie notification (email + push)"""
+"""Envoie notification (email + push)"""
+async def send_notification(user_id: str, club_name: str, slot: dict, detected_slot: DetectedSlot, alert_id: str, db: AsyncSession, club_slug: str = None):    
     email, name = await get_user_info(str(user_id))
     notifications_sent = 0
     
@@ -78,14 +78,17 @@ async def send_notification(user_id: str, club_name: str, slot: dict, detected_s
         push_tokens = result.scalars().all()
         
         booking_url = f"https://{club_slug}.doinsport.club/home" if club_slug else None
-            for pt in push_tokens:
-                success = await send_slot_push_notification(
-                    push_token=pt.token,
-                    club_name=club_name,
-                    slot=slot,
-                    alert_id=alert_id,
-                    booking_url=booking_url
-                )
+        
+        # CORRECTION ICI : Réalignement de la boucle for
+        for pt in push_tokens:
+            success = await send_slot_push_notification(
+                push_token=pt.token,
+                club_name=club_name,
+                slot=slot,
+                alert_id=alert_id,
+                booking_url=booking_url
+            )
+            # CORRECTION ICI : Réalignement du if success
             if success:
                 logger.info(f"📲 Push envoyé ({pt.device_type})")
                 notifications_sent += 1
